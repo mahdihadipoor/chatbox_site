@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>پنل چت</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('main_bp.static', filename='css/panel.css') }}">
+</head>
+<body>
+    <div class="main-container" id="main-container">
+        <div class="sidebar">
+             <div class="sidebar-header">
+                <button class="menu-btn"><i class="fas fa-bars"></i></button>
+                <div class="search-bar">
+                    <input type="search" id="search-input" placeholder="جستجو...">
+                </div>
+            </div>
+            <div class="conversation-list" id="conversation-list"></div>
+        </div>
+        <div class="chat-area">
+            <div id="chat-placeholder">یک چت را برای شروع گفتگو انتخاب کنید</div>
+            <div id="chat-content" style="display: none; width:100%; height:100%; flex-direction: column;">
+                <div class="chat-header">
+                    <button class="menu-btn" id="back-btn"><i class="fas fa-arrow-right"></i></button>
+                    <div id="chat-header-info" class="chat-header-info"></div>
+                    <div class="dropdown">
+                        <button class="menu-btn" id="options-menu-btn"><i class="fas fa-ellipsis-v"></i></button>
+                        <div class="dropdown-menu" id="options-menu">
+                            <a href="#" id="block-user-btn">بلاک کردن کاربر</a>
+                        </div>
+                    </div>
+                </div>
+                <div class="messages" id="messages"></div>
+                <form class="chat-form" id="chat-form">
+                    <input type="text" id="message-input" placeholder="پیام خود را بنویسید..." autocomplete="off" required>
+                </form>
+            </div>
+        </div>
+    </div>
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', async () => {
+            const token = localStorage.getItem('chat_access_token') || sessionStorage.getItem('chat_access_token');
+            if (!token) { window.location.href = '/login'; return; }
+
+            const myPublicId = parseJwt(token).sub;
+            const authHeader = { 'Authorization': `Bearer ${token}` };
+            const socket = io({ query: { token } });
+            let currentRecipient = null;
+            
+            const mainContainer = document.getElementById('main-container');
+            const backBtn = document.getElementById('back-btn');
+            const conversationList = document.getElementById('conversation-list');
+            const searchInput = document.getElementById('search-input'); // The search input element
+            const messagesDiv = document.getElementById('messages');
+            const chatForm = document.getElementById('chat-form');
+            const messageInput = document.getElementById('message-input');
+            const chatContent = document.getElementById('chat-content');
+            const chatPlaceholder = document.getElementById('chat-placeholder');
+            const chatHeaderInfo = document.getElementById('chat-header-info');
+
+            async function fetchWithAuth(url, options = {}) {
+                options.headers = { ...options.headers, ...authHeader, 'Content-Type': 'application/json' };
+                const response = await fetch(url, options);
+                if (response.status === 401) {
+                    localStorage.clear(); sessionStorage.clear();
+                    window.location.href = '/login';
+                }
+                return response;
+            }
+
+            function renderItemList(items, isSearchResult = false) {
+                conversationList.innerHTML = '';
+                items.forEach(item => {
+                    const user = isSearchResult ? item : item.with_user;
+                    const lastMessage = isSearchResult ? null : item.last_message;
+                    const itemDiv = document.createElement('div');
+                    itemDiv.className = 'conversation-item';
+                    itemDiv.dataset.userId = user.public_id;
+                    let previewHTML = lastMessage ? `<div class="preview">${lastMessage.text}</div>` : `<div class="preview" style="font-style: italic;">@${user.username || '...'}</div>`;
+                    itemDiv.innerHTML = `<img src="${user.profile_image_url}" alt=""><div class="conversation-details"><div class="name-time-row"><span class="name">${user.display_name}</span></div>${previewHTML}</div>`;
+                    itemDiv.onclick = () => openChat(user);
+                    conversationList.appendChild(itemDiv);
+                });
+            }
+
+            async function loadInitialConversations() {
+                const response = await fetchWithAuth('/api/conversations');
+                if (!response.ok) return;
+                const conversations = await response.json();
+                renderItemList(conversations, false);
+            }
+
+            async function handleSearch(event) {
+                const query = event.target.value.trim();
+                if (query.length === 0) {
+                    loadInitialConversations();
+                    return;
+                }
+                if (query.length < 2) {
+                    conversationList.innerHTML = '';
+                    return;
+                }
+                const response = await fetchWithAuth(`/api/search/users?q=${query}`);
+                const users = await response.json();
+                renderItemList(users, true);
+            }
+
+            function addMessageToUI(msg, isHistory = false) {
+                const msgWrapper = document.createElement('div');
+                msgWrapper.className = `message ${msg.sender_id === myPublicId ? 'sent' : 'received'}`;
+                msgWrapper.innerHTML = `<div class="message-content">${msg.text}</div>`;
+                messagesDiv.appendChild(msgWrapper);
+                if (!isHistory) {
+                    messagesDiv.scrollTop = messagesDiv.scrollHeight;
+                }
+            }
+            
+            async function openChat(user) {
+                currentRecipient = user;
+                mainContainer.classList.add('view-chat');
+                chatPlaceholder.style.display = 'none';
+                chatContent.style.display = 'flex';
+                chatHeaderInfo.innerHTML = `<div class="name">${user.display_name}</div>`;
+                messagesDiv.innerHTML = '';
+
+                const messagesResponse = await fetchWithAuth(`/api/messages/${user.public_id}`);
+                const messageHistory = await messagesResponse.json();
+                messageHistory.forEach(msg => addMessageToUI(msg, true));
+                messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            }
+            
+            chatForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                if (messageInput.value && currentRecipient) {
+                    socket.emit('private_message', { token: token, recipient_id: currentRecipient.public_id, text: messageInput.value });
+                    messageInput.value = '';
+                }
+            });
+            
+            socket.on('new_private_message', async (msg) => {
+                if (currentRecipient && (msg.sender_id === currentRecipient.public_id || msg.sender_id === myPublicId)) {
+                    addMessageToUI(msg);
+                }
+            });
+            
+            // --- THIS IS THE FIX ---
+            // This line adds the event listener that makes the search bar work.
+            searchInput.addEventListener('input', handleSearch);
+            
+            backBtn.addEventListener('click', () => { mainContainer.classList.remove('view-chat'); currentRecipient = null; });
+            function parseJwt(token) { try { return JSON.parse(atob(token.split('.')[1])); } catch (e) { return null; } }
+            loadInitialConversations();
+        });
+    </script>
+</body>
+</html>

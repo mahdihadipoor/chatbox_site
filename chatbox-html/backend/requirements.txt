@@ -1,0 +1,10 @@
+Flask
+Flask-SocketIO
+Flask-SQLAlchemy
+Flask-Cors
+Flask-JWT-Extended
+Authlib
+Pillow
+werkzeug
+gunicorn
+eventlet

@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ورود به حساب کاربری</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <link rel="stylesheet" href="{{ url_for('main_bp.static', filename='css/login.css') }}">
+</head>
+<body>
+    <div class="login-container" id="auth-container">
+        </div>
+
+    <script>
+        const container = document.getElementById('auth-container');
+        let errorPara = null;
+
+        function displayError(message) {
+            if (errorPara) {
+                errorPara.innerText = message || 'خطایی رخ داد.';
+            }
+        }
+
+        async function handleLogin(event) {
+            event.preventDefault();
+            const response = await fetch('/api/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    phone_number: document.getElementById('login-phone').value,
+                    password: document.getElementById('login-password').value
+                })
+            });
+            const data = await response.json();
+            if (response.ok) {
+                const keepLoggedIn = document.getElementById('keep-logged-in').checked;
+                const storage = keepLoggedIn ? localStorage : sessionStorage;
+                storage.setItem('chat_access_token', data.access_token);
+                if (data.refresh_token) {
+                    localStorage.setItem('chat_refresh_token', data.refresh_token);
+                }
+                if (data.profile_complete) {
+                    window.location.href = '/panel';
+                } else {
+                    renderCompleteProfile(); // This is the fix
+                }
+            } else {
+                displayError(data.msg);
+            }
+        }
+
+        async function handleRegister(event) {
+            event.preventDefault();
+            const response = await fetch('/api/register', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    phone_number: document.getElementById('register-phone').value,
+                    password: document.getElementById('register-password').value
+                })
+            });
+            const data = await response.json();
+            if (response.ok) {
+                alert('ثبت‌نام موفق بود. لطفاً وارد شوید.');
+                renderLoginView();
+            } else {
+                displayError(data.msg);
+            }
+        }
+        
+        async function handleCompleteProfile(event) {
+            event.preventDefault();
+            const token = localStorage.getItem('chat_access_token') || sessionStorage.getItem('chat_access_token');
+            const response = await fetch('/api/complete-profile', {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    username: document.getElementById('profile-username').value,
+                    display_name: document.getElementById('profile-displayname').value
+                })
+            });
+            const data = await response.json();
+            if (response.ok) {
+                window.location.href = '/panel';
+            } else {
+                displayError(data.msg);
+            }
+        }
+
+        function renderLoginView() {
+            container.innerHTML = `
+                <h2>ورود</h2>
+                <form id="login-form">
+                    <div class="input-group"><label for="login-phone">شماره تلفن</label><input type="tel" id="login-phone" required></div>
+                    <div class="input-group"><label for="login-password">رمز عبور</label><input type="password" id="login-password" required></div>
+                    <div class="login-options"><div class="checkbox-group"><input type="checkbox" id="keep-logged-in"><label for="keep-logged-in">مرا به خاطر بسپار</label></div><a href="#">فراموشی رمز عبور</a></div>
+                    <button type="submit" class="btn btn-primary">ورود</button>
+                </form>
+                <p class="error" id="error-message"></p>
+                <div class="separator">یا ادامه با</div>
+                <div class="social-buttons"><a href="/api/login/google" class="btn btn-google"><i class="fab fa-google"></i><span>ورود با گوگل</span></a></div>
+                <div class="footer-link"><a href="#" class="toggle-link">ساخت حساب کاربری جدید</a></div>
+            `;
+            errorPara = document.getElementById('error-message');
+        }
+
+        function renderRegisterView() {
+            container.innerHTML = `
+                <h2>ساخت حساب کاربری</h2>
+                <form id="register-form">
+                    <div class="input-group"><label for="register-phone">شماره تلفن</label><input type="tel" id="register-phone" required></div>
+                    <div class="input-group"><label for="register-password">رمز عبور</label><input type="password" id="register-password" required></div>
+                    <button type="submit" class="btn btn-primary">ثبت نام</button>
+                </form>
+                <p class="error" id="error-message"></p>
+                <div class="footer-link"><a href="#" class="toggle-link">حساب کاربری دارید؟ وارد شوید</a></div>
+            `;
+            errorPara = document.getElementById('error-message');
+        }
+
+        function renderCompleteProfile() {
+            container.innerHTML = `
+                <h2>تکمیل پروفایل</h2>
+                <form id="complete-profile-form">
+                    <div class="input-group"><label for="profile-username">نام کاربری (انگلیسی)</label><input type="text" id="profile-username" required></div>
+                    <div class="input-group"><label for="profile-displayname">نام نمایشی</label><input type="text" id="profile-displayname" required></div>
+                    <button type="submit" class="btn btn-primary">ذخیره و ورود</button>
+                </form>
+                <p class="error" id="error-message"></p>
+            `;
+            errorPara = document.getElementById('error-message');
+        }
+        
+        container.addEventListener('submit', (event) => {
+            if (event.target.id === 'login-form') {
+                handleLogin(event);
+            } else if (event.target.id === 'register-form') {
+                handleRegister(event);
+            } else if (event.target.id === 'complete-profile-form') {
+                handleCompleteProfile(event);
+            }
+        });
+
+        container.addEventListener('click', (event) => {
+            if (event.target.classList.contains('toggle-link')) {
+                event.preventDefault();
+                const currentForm = container.querySelector('form');
+                if (currentForm && currentForm.id === 'login-form') {
+                    renderRegisterView();
+                } else {
+                    renderLoginView();
+                }
+            }
+        });
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const fragment = new URLSearchParams(window.location.hash.substring(1));
+            const accessToken = fragment.get('access_token');
+            const refreshToken = fragment.get('refresh_token');
+
+            if (accessToken && refreshToken) {
+                localStorage.setItem('chat_access_token', accessToken);
+                localStorage.setItem('chat_refresh_token', refreshToken);
+                window.location.replace('/panel');
+            } else {
+                renderLoginView();
+            }
+        });
+    </script>
+</body>
+</html>
